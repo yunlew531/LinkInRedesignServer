@@ -14,6 +14,7 @@ const corsOptions = {
 };
 
 const indexRouter = require('./routes/index');
+const signinRouter = require('./routes/signin');
 const usersRouter = require('./routes/users');
 
 const app = express();
@@ -25,6 +26,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
 app.use('/', indexRouter);
+app.use('/', signinRouter);
 app.use('/users', usersRouter);
 
 module.exports = app;

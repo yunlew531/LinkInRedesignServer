@@ -17,10 +17,24 @@ router.get('/user/:id', async (req, res) => {
     const snapshot = await usersRef.doc(uid).get();
     if(!snapshot.exists) throw new Error('user not exist');
     const user = snapshot.data();
+    const { name, photo, address, connections, brief_introduction, introduction, projects,
+      skills, experience, education } = user;
+    const resUser = {
+      name,
+      photo,
+      address,
+      connections_qty: connections?.length,
+      brief_introduction,
+      introduction,
+      projects,
+      skills,
+      experience,
+      education,
+    };
 
     res.send({
       success: true,
-      user,
+      user: resUser,
       message: '成功取得資料',
     });
   } catch(err) {
