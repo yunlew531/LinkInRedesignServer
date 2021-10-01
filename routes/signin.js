@@ -2,8 +2,28 @@ const express = require('express');
 const router = express.Router();
 const { fireAuth, fireDb } = require('../connections/firebase_connect');
 const usersRef = fireDb.collection('users');
+const blackListRef = fireDb.collection('blacklist');
 const { validationResult, checkSchema } = require('express-validator');
-var jwt = require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
+const cron = require("node-cron");
+
+// clean up blacklist for more than 7days every wednesday
+cron.schedule('* * * * * 3', async () => {
+  const sevenDays = Date.now() - 60 * 60 * 7 * 24 * 1000;
+  
+  try {
+    const snapshots = await blackListRef.where('timestamp', '<', sevenDays).get();
+    if (!snapshots.empty) {
+      const batch = fireDb.batch();
+      snapshots.forEach(doc => {
+        batch.delete(doc.ref)
+      });
+      await batch.commit();
+    }
+  } catch (err) {
+    console.log(err);
+  }
+});
 
 const emailCheck = {
   in: ['body'],
@@ -169,16 +189,54 @@ router.post('/register',
     });
 });
 
-router.post('/user/check', (req, res) => {
-  let { authorization: token } = req.headers;
+router.post('/logout', async (req, res) => {
+  const { authorization: token } = req.headers;
 
   try {
-    token = jwt.verify(token, process.env.JWT_PRIVATE_KEY);
+    if (!token) throw new Error('no login');
+    await blackListRef.add({
+      token,
+      timestamp: Date.now(),
+    });
+
+    res.send({
+      success: true,
+      message: 'logout success',
+    });
+  } catch (err) {
+    const { message: code } = err;
+    let message = '';
+
+    switch (code) {
+      case 'no login':
+        message = 'no login';
+        break;
+      default:
+        message = 'Error';
+        break;
+    }
+
+    res.status(400).send({
+      success: false,
+      message,
+    });
+  }
+});
+
+router.post('/user/check', async (req, res) => {
+  const { authorization: token } = req.headers;
+
+  try {
+    const { uid } = jwt.verify(token, process.env.JWT_PRIVATE_KEY);
+
+    const snapshot = await blackListRef.where('token', '==', token).get();
+
+    if (!snapshot.empty) throw new Error('invalid token');
 
     res.send({
       success: true,
       message: 'Is login',
-      uid: token.uid,
+      uid,
     })
   } catch (err) {
     const { message: code } = err;
@@ -199,7 +257,7 @@ router.post('/user/check', (req, res) => {
         break;
     }
 
-    res.send({
+    res.status(403).send({
       success: false,
       message,
     })
