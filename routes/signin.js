@@ -54,10 +54,10 @@ const registerCheck = {
     },
     errorMessage: 'Invalid Phone. must be 10 chars.',
   },
-  address: {
+  city: {
     in: ['body'],
     notEmpty: true,
-    errorMessage: 'Address required',
+    errorMessage: 'City required',
   },
 };
 
@@ -134,32 +134,33 @@ router.post('/register',
     return;
   }
 
-  const { email, password, name, phone } = req.body;
+  const { email, password, name, phone, city } = req.body;
 
   let loginToken = '';
+  let uid = '';
   fireAuth.createUserWithEmailAndPassword(email, password)
     .then(({ user }) => {
-      const { uid } = user;
+      ({ uid } = user);
       const userRef = usersRef.doc(uid);
-      const pwToken = jwt.sign({ password }, process.env.JWT_PRIVATE_KEY);
       loginToken = jwt.sign({ uid }, process.env.JWT_PRIVATE_KEY, { expiresIn: '5 days' });
 
       return userRef.set({
         uid,
         email,
-        password: pwToken,
         name,
         phone,
-        address,
+        city,
       });
     })
     .then(() => {
+      const expired = Date.now() + 60 * 60 * 24 * 5 * 1000;
+
       res.send({
         success: true,
         message: 'Register success',
         token: loginToken,
         uid,
-        expired: Date.now() + 60 * 60 * 24 * 5 * 1000,
+        expired,
       });
     })
     .catch((err) => {

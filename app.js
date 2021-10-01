@@ -3,11 +3,12 @@ const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 require('dotenv').config();
 const cors = require('cors');
+const checkAuth = require('./mixins/checkAuth');
 
 const corsOptions = {
   origin: [
     'http://localhost:3000',
-    'https://yunlew531.github.io/LinkInRedesign',
+    'https://yunlew531.github.io',
   ],
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -16,6 +17,7 @@ const corsOptions = {
 const indexRouter = require('./routes/index');
 const signinRouter = require('./routes/signin');
 const usersRouter = require('./routes/users');
+const selfRouter = require('./routes/self');
 
 const app = express();
 
@@ -28,5 +30,9 @@ app.use(cookieParser());
 app.use('/', indexRouter);
 app.use('/', signinRouter);
 app.use('/users', usersRouter);
+
+// auth
+app.use(checkAuth);
+app.use('/self', selfRouter);
 
 module.exports = app;

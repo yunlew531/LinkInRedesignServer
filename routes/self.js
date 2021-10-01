@@ -1,18 +1,11 @@
 const express = require('express');
-const router = express.Router();
+const router = express();
 const { fireDb } = require('../connections/firebase_connect');
 
 const usersRef = fireDb.collection('users');
 
-router.get('/', function(req, res, next) {
-  res.send({
-    success: false,
-  });
-});
-
-router.get('/user/:id', async (req, res) => {
-  const { id: uid } = req.params;
-
+router.get('/profile', async (req, res) => {
+  const { uid } = req.body;
   try {
     const snapshot = await usersRef.doc(uid).get();
     if(!snapshot.exists) throw new Error('user not exist');
@@ -54,6 +47,6 @@ router.get('/user/:id', async (req, res) => {
       message,
     });
   }
-})
+});
 
 module.exports = router;
