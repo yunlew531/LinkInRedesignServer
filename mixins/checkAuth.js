@@ -5,10 +5,11 @@ const checkAuth = async (req, res, next) => {
   try {
     const { uid } = jwt.verify(token, process.env.JWT_PRIVATE_KEY);
     if (uid) {
-      req.body.uid = uid;
+      req.uid = uid;
       next();
     } else throw new Error();
   } catch (err) {
+    console.log();
     const { message: code } = err;
     let message = '';
 

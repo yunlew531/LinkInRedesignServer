@@ -15,9 +15,10 @@ const firebaseConfig = {
 
 const fireDb = firebase.firestore();
 const fireAuth = firebase.auth();
-// const fireStorage = firebase.storage();
+const fireStorage = firebase.storage();
 
 module.exports = {
   fireAuth,
   fireDb,
+  fireStorage,
 };
