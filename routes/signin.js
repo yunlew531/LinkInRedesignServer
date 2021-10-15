@@ -13,7 +13,8 @@ cron.schedule('* * * * * 3', async () => {
   
   try {
     const snapshots = await blackListRef.where('timestamp', '<', sevenDays).get();
-    if (!snapshots.empty) {
+    const haveSnapshot = !snapshots.empty;
+    if (haveSnapshot) {
       const batch = fireDb.batch();
       snapshots.forEach(doc => {
         batch.delete(doc.ref)
@@ -21,7 +22,7 @@ cron.schedule('* * * * * 3', async () => {
       await batch.commit();
     }
   } catch (err) {
-    console.log(err);
+    console.dir(err);
   }
 });
 

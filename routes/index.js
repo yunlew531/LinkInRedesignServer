@@ -18,7 +18,8 @@ router.get('/user/:id', async (req, res) => {
     if(!snapshot.exists) throw new Error('user not exist');
     const user = snapshot.data();
     const { name, photo, city, connections, brief_introduction, introduction, projects,
-      skills, experience, education } = user;
+      skills, experience, education, description, background_cover, profile_views, about,
+    } = user;
     const resUser = {
       name,
       photo,
@@ -30,6 +31,10 @@ router.get('/user/:id', async (req, res) => {
       skills,
       experience,
       education,
+      description,
+      background_cover,
+      profile_views,
+      about,
     };
 
     res.send({

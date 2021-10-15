@@ -21,4 +21,5 @@ module.exports = {
   fireAuth,
   fireDb,
   fireStorage,
+  firebase,
 };
