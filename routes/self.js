@@ -515,4 +515,63 @@ router.delete('/experience/:id', async (req, res) => {
   }
 });
 
+const educationCheck = {
+  school: {
+    in: ['body'],
+    notEmpty: true,
+    errorMessage: 'school required',
+  },
+  major: {
+    in: ['body'],
+    notEmpty: true,
+    errorMessage: 'major required',
+  },
+  content: {
+    in: ['body'],
+    notEmpty: true,
+    errorMessage: 'content required',
+  },
+  time: {
+    in: ['body'],
+    notEmpty: true,
+    errorMessage: 'time required',
+  },
+};
+
+router.post('/education',
+  checkSchema(educationCheck),
+  async (req, res) => {
+  const { uid } = req;
+  const education = req.body;
+  const formatter = (error) => error.msg;
+  const errors = validationResult(req).formatWith(formatter);
+  const hasErrors = !errors.isEmpty();
+
+  if(hasErrors) {
+    res.status(400).send({
+      success: false,
+      message: errors.array(),
+    });
+    return;
+  }
+
+  try {
+    await usersRef.doc(uid).update({ education });
+    const snapshot = await usersRef.doc(uid).get();
+    const { education: resEducation } = snapshot.data();
+    
+    res.send({
+      success: true,
+      message: 'update success',
+      education: resEducation,
+    });
+  } catch (err) {
+    console.dir(err);
+    res.status(400).send({
+      success: false,
+      message: 'update failed',
+    });
+  }
+});
+
 module.exports = router;
