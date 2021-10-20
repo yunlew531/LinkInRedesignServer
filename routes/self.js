@@ -4,9 +4,9 @@ const { fireDb, fireStorage, firebase } = require('../connections/firebase_conne
 const { validationResult, checkSchema } = require('express-validator');
 const multer  = require('multer');
 const upload = multer();
-
 const usersRef = fireDb.collection('users');
 const userPhotosStorageRef = fireStorage.ref('/user_photo');
+const articlesRef = fireDb.collection('articles');
 
 router.get('/profile', async (req, res) => {
   const { uid } = req;
@@ -22,7 +22,7 @@ router.get('/profile', async (req, res) => {
 
     const user = userSnapshot.data();
     const { name, photo, city, connections, brief_introduction, introduction,
-      skills, education, profile_views, background_cover, description, about
+      skills, education, profile_views, background_cover, description, about, job
     } = user;
 
     const projects = [];
@@ -54,6 +54,7 @@ router.get('/profile', async (req, res) => {
       background_cover,
       description,
       about,
+      job,
     };
 
     res.send({
@@ -573,5 +574,74 @@ router.post('/education',
     });
   }
 });
+
+const articleCheck = {
+  content: {
+    in: ['body'],
+    notEmpty: true,
+    errorMessage: 'content required',
+  },
+};
+
+const checkError = (req) => {
+  const formatter = (error) => error.msg;
+  const errors = validationResult(req).formatWith(formatter);
+  const hasErrors = !errors.isEmpty();
+
+  if(hasErrors) {
+    res.status(400).send({
+      success: false,
+      message: errors.array(),
+    });
+    return true;
+  } else return false;
+};
+
+router.post(
+  '/article/create',
+  checkSchema(articleCheck),
+  async (req, res) => {
+    const hasError = checkError(req);
+    if (hasError) return;
+
+    const { uid } = req;
+    const { content } = req.body;
+    const create_time = Math.floor(Date.now() / 1000);
+    const articleRef = articlesRef.doc();
+    const { id } = articleRef;
+
+    try {
+      const snapshot = await usersRef.doc(uid).get();
+      let { articles, name } = snapshot.data();
+
+      const article = {
+        id,
+        uid,
+        name,
+        content,
+        create_time,
+      };
+
+      await articleRef.set(article);
+      articles = articles ? [ ...articles, id ] : [ id ];
+      await usersRef.doc(uid).update({ articles });
+      const articlesSnapshot = await articlesRef.orderBy('create_time').limit(10).get();
+      const resArticles = [];
+      articlesSnapshot.forEach((doc) => resArticles.push(doc.data()));
+
+      res.send({
+        success: true,
+        message: 'create success',
+        articles: resArticles,
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(400).send({
+        success: false,
+        message: 'create failed'
+      });
+    }
+  }
+);
 
 module.exports = router;
