@@ -4,22 +4,43 @@ const { fireDb } = require('../connections/firebase_connect');
 
 const usersRef = fireDb.collection('users');
 
-router.get('/', function(req, res, next) {
+router.get('/', function(req, res) {
   res.send({
     success: false,
   });
 });
 
-router.get('/user/:id', async (req, res) => {
-  const { id: uid } = req.params;
+router.get('/user/:uid', async (req, res) => {
+  const { uid } = req.params;
+  const userRef = usersRef.doc(uid);
+  const projectsRef = userRef.collection('projects');
+  const experienceRef = userRef.collection('experience');
 
   try {
-    const snapshot = await usersRef.doc(uid).get();
-    if(!snapshot.exists) throw new Error('user not exist');
-    const user = snapshot.data();
-    const { name, photo, city, connections, brief_introduction, introduction, projects,
-      skills, experience, education, description, background_cover, profile_views, about,
+    const [ userSnapshot, projectsSnapshot, experienceSnapshot ] =
+      await Promise.all([userRef.get(), projectsRef.get(), experienceRef.get()]);
+
+    if(!userSnapshot.exists) throw new Error('user not exist');
+
+    const user = userSnapshot.data();
+    const { name, photo, city, connections, brief_introduction, introduction,
+      skills, education, profile_views, background_cover, description, about, job
     } = user;
+
+    const projects = [];
+    projectsSnapshot.forEach((doc) => {
+      const project = doc.data();
+      const { create_time, update_time } = project;
+      if (create_time) project.create_time = create_time.seconds;
+      if (update_time) project.update_time = update_time.seconds;
+      projects.push(project);
+    });
+
+    const experience = [];
+    experienceSnapshot.forEach((doc) => {
+      experience.push(doc.data());
+    });
+
     const resUser = {
       name,
       photo,
@@ -31,10 +52,11 @@ router.get('/user/:id', async (req, res) => {
       skills,
       experience,
       education,
-      description,
-      background_cover,
       profile_views,
+      background_cover,
+      description,
       about,
+      job,
     };
 
     res.send({

@@ -63,7 +63,6 @@ router.get('/profile', async (req, res) => {
       message: '成功取得資料',
     });
   } catch(err) {
-    console.log(err);
     let message = '';
 
     switch(err.message) {
@@ -209,7 +208,6 @@ router.put('/about/update', async (req, res) => {
       about: newAbout,
     });
   } catch (err) {
-    console.log(err);
     res.status(400).send({
       success: false,
       message: 'Error',
@@ -248,7 +246,6 @@ router.post('/project/create', async (req, res) => {
       project_id: id,
     })
   } catch (err) {
-    console.log('err log => ', err);
     res.status(400).send({
       success: false,
       message: 'create failed',
@@ -340,7 +337,6 @@ router.post('/experience/image', upload.single('img-file'), async (req, res) => 
       message: 'upload success',
     });
   } catch (err) {
-    console.log('err log => ', err);
     res.status(400).send({
       success: false,
       message: 'upload failed',
@@ -567,7 +563,6 @@ router.post('/education',
       education: resEducation,
     });
   } catch (err) {
-    console.dir(err);
     res.status(400).send({
       success: false,
       message: 'update failed',
@@ -612,22 +607,26 @@ router.post(
 
     try {
       const snapshot = await usersRef.doc(uid).get();
-      let { articles, name } = snapshot.data();
-
+      let { articles = [], name, photo = '', job = '' } = snapshot.data();
+      
       const article = {
         id,
         uid,
         name,
         content,
         create_time,
+        photo,
+        job,
       };
-
+      
       await articleRef.set(article);
       articles = articles ? [ ...articles, id ] : [ id ];
       await usersRef.doc(uid).update({ articles });
-      const articlesSnapshot = await articlesRef.orderBy('create_time').limit(10).get();
-      const resArticles = [];
+      const articlesSnapshot =
+        await articlesRef.orderBy('create_time').startAt(1).limitToLast(10).get();
+      let resArticles = [];
       articlesSnapshot.forEach((doc) => resArticles.push(doc.data()));
+      resArticles = resArticles.reverse();
 
       res.send({
         success: true,
@@ -635,7 +634,7 @@ router.post(
         articles: resArticles,
       });
     } catch (err) {
-      console.log(err);
+      console.log(' log => ', err);
       res.status(400).send({
         success: false,
         message: 'create failed'
@@ -643,5 +642,31 @@ router.post(
     }
   }
 );
+
+router.get('/articles/:page', async (req, res) => {
+  const page = req.params.page || 1;
+  const startIdx = (page - 1) * 10 + 1;
+
+  try {
+    const articlesSnapshot =
+      await articlesRef.orderBy('create_time').limitToLast(10).get();
+
+    let resArticles = [];
+    articlesSnapshot.forEach((doc) => resArticles.push(doc.data()));
+    resArticles = resArticles.reverse();
+
+    res.send({
+      success: true,
+      message: 'success',
+      articles: resArticles,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'failed'
+    });
+  }
+});
 
 module.exports = router;
