@@ -21,7 +21,7 @@ router.get('/profile', async (req, res) => {
     if(!userSnapshot.exists) throw new Error('user not exist');
 
     const user = userSnapshot.data();
-    const { name, photo, city, connections, brief_introduction, introduction,
+    const { uid, name, photo, city, connections, brief_introduction, introduction,
       skills, education, profile_views, background_cover, description, about, job
     } = user;
 
@@ -40,6 +40,7 @@ router.get('/profile', async (req, res) => {
     });
 
     const resUser = {
+      uid,
       name,
       photo,
       city,
@@ -665,6 +666,86 @@ router.get('/articles/:page', async (req, res) => {
     res.status(400).send({
       success: false,
       message: 'failed'
+    });
+  }
+});
+
+router.post('/article/like/:articleId', async (req, res) => {
+  const { uid } = req;
+  const { articleId } = req.params;
+  const { name, photo } = req.body;
+
+  try {
+    const snapshot = await articlesRef.doc(articleId).get();
+    const { likes } = snapshot.data();
+
+    const like = {
+      uid,
+      name,
+      photo,
+    };
+
+    if (!likes) {
+      await articlesRef.doc(articleId).update({
+        likes: [ like ],
+      });
+    } else {
+      likes.push(like);
+      await articlesRef.doc(articleId).update({ likes });
+    }
+
+    const articleSnapshot = await articlesRef.doc(articleId).get();
+    const article = articleSnapshot.data();
+
+    res.send({
+      success: true,
+      message: 'thumbs up success',
+      article,
+    });
+  } catch (err) {
+    res.status(400).send({
+      success: false,
+      message: 'thumbs up failed',
+    });
+  }
+});
+
+router.post('/article/dislike/:articleId', async (req, res) => {
+  const { uid } = req;
+  const { articleId } = req.params;
+
+  try {
+    const snapshot = await articlesRef.doc(articleId).get();
+    const { likes } = snapshot.data();
+    const userInLikesIndex = likes.findIndex((like) => like.uid === uid);
+    if (userInLikesIndex === -1) throw new Error('user no thumbs up')
+
+    likes.splice(userInLikesIndex, 1);
+    await articlesRef.doc(articleId).update({ likes });
+    
+    const articleSnapshot = await articlesRef.doc(articleId).get();
+    const article = articleSnapshot.data();
+
+    res.send({
+      success: true,
+      message: 'cancel thumbs up success',
+      article,
+    });
+  } catch (err) {
+    const code = err.message;
+    let message = '';
+
+    switch (code) {
+      case 'user no thumbs up':
+        message = 'user no thumbs up';
+        break;
+      default:
+        message = 'cancel thumbs up failed';
+    }
+
+    res.status(400).send({
+      success: false,
+      message,
     });
   }
 });
