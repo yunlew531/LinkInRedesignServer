@@ -635,7 +635,7 @@ router.post(
         articles: resArticles,
       });
     } catch (err) {
-      console.log(' log => ', err);
+      console.log(err);
       res.status(400).send({
         success: false,
         message: 'create failed'
@@ -651,9 +651,27 @@ router.get('/articles/:page', async (req, res) => {
   try {
     const articlesSnapshot =
       await articlesRef.orderBy('create_time').limitToLast(10).get();
-
-    let resArticles = [];
-    articlesSnapshot.forEach((doc) => resArticles.push(doc.data()));
+      
+      const articlesPromise = () => new Promise((resolve, reject) => {
+      let resArticles = [];
+      articlesSnapshot.forEach(async (doc) => {
+        const data = doc.data();
+        try {
+          const commentsSnapshot =
+            await articlesRef.doc(data.id).collection('comments').orderBy('create_time').get();
+          const comments = [];
+          if (!commentsSnapshot.empty) {
+            commentsSnapshot.forEach((commentDoc) => comments.push(commentDoc.data()));
+          }
+          const article = { ...data, comments };
+          resArticles.push(article);
+          if (resArticles.length === 10) {
+            resolve(resArticles);
+          }
+        } catch (err) { reject(new Error()); }
+      });
+    });
+    let resArticles = await articlesPromise();
     resArticles = resArticles.reverse();
 
     res.send({
@@ -673,7 +691,7 @@ router.get('/articles/:page', async (req, res) => {
 router.post('/article/like/:articleId', async (req, res) => {
   const { uid } = req;
   const { articleId } = req.params;
-  const { name, photo } = req.body;
+  const { name, photo = '', job = '' } = req.body;
 
   try {
     const snapshot = await articlesRef.doc(articleId).get();
@@ -683,6 +701,7 @@ router.post('/article/like/:articleId', async (req, res) => {
       uid,
       name,
       photo,
+      job,
     };
 
     if (!likes) {
@@ -703,6 +722,7 @@ router.post('/article/like/:articleId', async (req, res) => {
       article,
     });
   } catch (err) {
+    console.log(' log => ', err);
     res.status(400).send({
       success: false,
       message: 'thumbs up failed',
@@ -744,6 +764,90 @@ router.post('/article/dislike/:articleId', async (req, res) => {
     }
 
     res.status(400).send({
+      success: false,
+      message,
+    });
+  }
+});
+
+router.post('/article/comment/:articleId', async (req, res) => {
+  const { uid } = req;
+  const { articleId } = req.params;
+  const { comment, name, photo = '' } = req.body;
+
+  const commentsRef = articlesRef.doc(articleId).collection('comments');
+  const commentRef = commentsRef.doc();
+  const { id } = commentRef;
+
+  const data = {
+    id,
+    uid,
+    name,
+    photo,
+    comment,
+    create_time: Math.floor(Date.now() / 1000),
+  };
+  
+  try {
+    await commentRef.set(data);
+    const snapshot = await commentsRef.orderBy('create_time').get();
+    const comments = [];
+    snapshot.forEach((comment) => comments.push(comment.data()));
+
+    res.send({
+      success: true,
+      message: 'comment success',
+      comments,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'comment failed',
+    });
+  }
+});
+
+router.delete('/article/:articleId/:commentId', async (req, res) => {
+  const { uid } = req;
+  const { articleId, commentId } = req.params;
+  const commentRef = articlesRef.doc(articleId).collection('comments').doc(commentId);
+
+  try {
+    const commentSnapshot = await commentRef.get();
+    const comment = commentSnapshot.data();
+    if (comment.uid !== uid) throw new Error('not comment owner');
+
+    await commentRef.delete();
+    const snapshot =
+      await articlesRef.doc(articleId).collection('comments').orderBy('create_time').get();
+
+    const comments = [];
+    snapshot.forEach((doc) => {
+      comments.push(doc.data());
+    });
+
+    res.send({
+      success: true,
+      message: 'delete success',
+      comments,
+    });
+  } catch (err) {
+    const code = err.message;
+    let message = '';
+    let status = 400;
+
+    switch(code) {
+      case 'not comment owner':
+        status = 403;
+        message = 'not comment owner';
+        break;
+      default:
+        message = 'delete failed';
+        break;
+    }
+
+    res.status(status).send({
       success: false,
       message,
     });
