@@ -660,10 +660,19 @@ router.get('/articles/:page', async (req, res) => {
           const commentsSnapshot =
             await articlesRef.doc(data.id).collection('comments').orderBy('create_time').get();
           const comments = [];
+          
           if (!commentsSnapshot.empty) {
             commentsSnapshot.forEach((commentDoc) => comments.push(commentDoc.data()));
           }
+          
           const article = { ...data, comments };
+
+          if (article.favorites) {
+            const favorites = Object.keys(article.favorites).map((favorite) =>
+              ({ uid: favorite }));
+            article.favorites = favorites;
+          }
+
           resArticles.push(article);
           if (resArticles.length === 10) {
             resolve(resArticles);
@@ -808,7 +817,7 @@ router.post('/article/comment/:articleId', async (req, res) => {
   }
 });
 
-router.delete('/article/:articleId/:commentId', async (req, res) => {
+router.delete('/article/:articleId/comment/:commentId', async (req, res) => {
   const { uid } = req;
   const { articleId, commentId } = req.params;
   const commentRef = articlesRef.doc(articleId).collection('comments').doc(commentId);
@@ -850,6 +859,102 @@ router.delete('/article/:articleId/:commentId', async (req, res) => {
     res.status(status).send({
       success: false,
       message,
+    });
+  }
+});
+
+router.post('/article/favorites/:articleId', async (req, res) => {
+  const { uid } = req;
+  const { articleId } = req.params;
+
+  try {
+    const snapshot = await articlesRef.doc(articleId).get();
+    const { favorites = {} } = snapshot.data();
+    favorites[uid] = uid;
+    await articlesRef.doc(articleId).update({ favorites });
+    const articleSnapshot = await articlesRef.doc(articleId).get();
+    const { favorites: resFavorites } = articleSnapshot.data();
+    const favoritesArr = Object.keys(resFavorites).map((favorite) => ({ uid: favorite }));
+
+    res.send({
+      success: true,
+      message: 'add favorite',
+      favorites: favoritesArr,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'add favorite failed',
+    });
+  }
+});
+
+router.delete('/article/favorites/:articleId', async (req, res) => {
+  const { uid } = req;
+  const { articleId } = req.params;
+
+  try {
+    const snapshot = await articlesRef.doc(articleId).get();
+    const { favorites = {} } = snapshot.data();
+
+    if (!favorites[uid]) throw new Error('user in not add favorite');
+    else delete favorites[uid];
+
+    await articlesRef.doc(articleId).update({ favorites });
+    const articleSnapshot = await articlesRef.doc(articleId).get();
+    const { favorites: resFavorites } = articleSnapshot.data();
+    const favoritesArr = Object.keys(resFavorites).map((favorite) => ({ uid: favorite }));
+
+    res.send({
+      success: true,
+      message: 'remove favorite',
+      favorites: favoritesArr,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'remove favorite failed',
+    });
+  }
+});
+
+router.delete('/article/:articleId', async (req, res) => {
+  const { uid } = req;
+  const { articleId } = req.params;
+  const articleRef = articlesRef.doc(articleId);
+
+  try {
+    const snapshot = await articleRef.get();
+    const article = snapshot.data();
+
+    if (article.uid !== uid) throw new Error('not article owner');
+
+    await articleRef.delete();
+
+    res.send({
+      success: true,
+      message: 'article delete',
+    });
+  } catch (err) {
+    const code = err.message;
+    let message = '';
+    let status = 400;
+
+    switch (code) {
+      case 'not article owner':
+        status = 403;
+        message = 'not article owner';
+        break;
+      default:
+        message = 'delete failed';
+        break;
+    }
+
+    res.status(status).send({
+      success: false,
+      message, 
     });
   }
 });
