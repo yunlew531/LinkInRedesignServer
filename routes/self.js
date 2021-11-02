@@ -7,6 +7,7 @@ const upload = multer();
 const usersRef = fireDb.collection('users');
 const userPhotosStorageRef = fireStorage.ref('/user_photo');
 const articlesRef = fireDb.collection('articles');
+const handleProfileConnections = require('../mixins/handleProfileConnections');
 
 router.get('/profile', async (req, res) => {
   const { uid } = req;
@@ -21,7 +22,7 @@ router.get('/profile', async (req, res) => {
     if(!userSnapshot.exists) throw new Error('user not exist');
 
     const user = userSnapshot.data();
-    const { uid, name, photo, city, connections, brief_introduction, introduction,
+    const { uid, name, photo, city, connections = {}, brief_introduction, introduction,
       skills, education, profile_views, background_cover, description, about, job
     } = user;
 
@@ -39,12 +40,15 @@ router.get('/profile', async (req, res) => {
       experience.push(doc.data());
     });
 
+    const connectionsData = handleProfileConnections(connections);
+
     const resUser = {
       uid,
       name,
       photo,
       city,
-      connections_qty: connections?.length,
+      connections: connectionsData,
+      connections_qty: connectionsData?.connected?.length,
       brief_introduction,
       introduction,
       projects,
@@ -61,17 +65,18 @@ router.get('/profile', async (req, res) => {
     res.send({
       success: true,
       user: resUser,
-      message: '成功取得資料',
+      message: 'get data success',
     });
   } catch(err) {
+    console.log(err);
     let message = '';
 
     switch(err.message) {
       case 'user not exist':
-        message = '帳戶不存在';
+        message = 'user not exist';
         break;
       default:
-        message = '無法取得資料';
+        message = 'get data failed';
         break;
     }
 
@@ -87,7 +92,9 @@ router.get('/photo', async (req, res) => {
 
   try {
     const snapshot = await usersRef.doc(uid).get();
-    const { photo, name } = snapshot.data();
+    const { photo, name, connections = {} } = snapshot.data();
+
+    const connectionsData = handleProfileConnections(connections);
 
     res.send({
       success: true,
@@ -95,7 +102,8 @@ router.get('/photo', async (req, res) => {
       user: {
         photo,
         name,
-      }
+        connections: connectionsData,
+      },
     });
   } catch (err) {
     res.status(400).send({
@@ -644,13 +652,14 @@ router.post(
   }
 );
 
-router.get('/articles/:page', async (req, res) => {
+router.get('/articles/page/:page', async (req, res) => {
   const page = req.params.page || 1;
   const startIdx = (page - 1) * 10 + 1;
 
   try {
     const articlesSnapshot =
-      await articlesRef.orderBy('create_time').limitToLast(10).get();
+      await articlesRef.orderBy('create_time').get();
+      // await articlesRef.orderBy('create_time').limitToLast(10).get();
       
       const articlesPromise = () => new Promise((resolve, reject) => {
       let resArticles = [];
@@ -674,7 +683,7 @@ router.get('/articles/:page', async (req, res) => {
           }
 
           resArticles.push(article);
-          if (resArticles.length === 10) {
+          if (resArticles.length === articlesSnapshot.size) {
             resolve(resArticles);
           }
         } catch (err) { reject(new Error()); }
@@ -868,10 +877,7 @@ router.post('/article/favorites/:articleId', async (req, res) => {
   const { articleId } = req.params;
 
   try {
-    const snapshot = await articlesRef.doc(articleId).get();
-    const { favorites = {} } = snapshot.data();
-    favorites[uid] = uid;
-    await articlesRef.doc(articleId).update({ favorites });
+    await articlesRef.doc(articleId).update({ [`favorites.${uid}`]: uid });
     const articleSnapshot = await articlesRef.doc(articleId).get();
     const { favorites: resFavorites } = articleSnapshot.data();
     const favoritesArr = Object.keys(resFavorites).map((favorite) => ({ uid: favorite }));
@@ -893,18 +899,13 @@ router.post('/article/favorites/:articleId', async (req, res) => {
 router.delete('/article/favorites/:articleId', async (req, res) => {
   const { uid } = req;
   const { articleId } = req.params;
+  const { FieldValue } = firebase.firestore;
 
   try {
-    const snapshot = await articlesRef.doc(articleId).get();
-    const { favorites = {} } = snapshot.data();
-
-    if (!favorites[uid]) throw new Error('user in not add favorite');
-    else delete favorites[uid];
-
-    await articlesRef.doc(articleId).update({ favorites });
+    await articlesRef.doc(articleId).update({ [`favorites.${uid}`]: FieldValue.delete() });
     const articleSnapshot = await articlesRef.doc(articleId).get();
-    const { favorites: resFavorites } = articleSnapshot.data();
-    const favoritesArr = Object.keys(resFavorites).map((favorite) => ({ uid: favorite }));
+    const { favorites } = articleSnapshot.data();
+    const favoritesArr = Object.keys(favorites).map((favorite) => ({ uid: favorite }));
 
     res.send({
       success: true,
@@ -955,6 +956,247 @@ router.delete('/article/:articleId', async (req, res) => {
     res.status(status).send({
       success: false,
       message, 
+    });
+  }
+});
+
+router.get('/articles/own', async (req, res) => {
+  const { uid } = req;
+
+  try {
+    const snapshot = await articlesRef.where('uid', '==', uid).orderBy('create_time').get();
+    
+    const articlesPromise = () => new Promise((resolve, reject) => {
+      let articles = [];
+      snapshot.forEach(async (doc) => {
+        const article = doc.data();
+        const commentsSnapshot =
+          await articlesRef.doc(article.id).collection('comments').orderBy('create_time').get();
+        const comments = [];
+        commentsSnapshot.forEach((doc) => comments.push(doc.data()));
+  
+        const articleData = {
+          ...article,
+          comments,
+        };
+  
+        articles.push(articleData);
+        if (articles.length === snapshot.size) {
+          articles = articles.reverse();
+          resolve(articles);
+        }
+      });
+    });
+    const articles = await articlesPromise();
+
+    res.send({
+      success: true,
+      message: 'get articles success',
+      articles,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'get articles failed',
+    });
+  }
+});
+
+router.post('/user/connect/:orderSideUid', async (req, res) => {
+  const { uid: ownUid } = req;
+  const { orderSideUid } = req.params;
+
+  const ownRef = usersRef.doc(ownUid);
+  const orderSideRef = usersRef.doc(orderSideUid);
+
+  try {
+    const [ownProfileSnapshot, userProfileSnapshot] =
+      await Promise.all([ownRef.get(), orderSideRef.get()]);
+  
+    const {
+      connections: ownConnections = {},
+      name: ownName,
+      job: ownJob = '',
+      photo: ownPhoto = '',
+    } = ownProfileSnapshot.data();
+    const {
+      connections: orderSideConnections = {},
+      name: orderSideName,
+      job: orderSideJob = '',
+      photo: orderSidePhoto = ''
+    } = userProfileSnapshot.data();
+  
+    const isConnected = ownConnections.sent ? ownConnections.sent[orderSideUid] : false;
+
+    if (ownConnections.sent && isConnected) {
+      throw new Error('user is connected');
+    }
+
+    const ownConnectionsQty = ownConnections.connected?.length || 0;
+    const orderSideConnectionsQty = orderSideConnections.connected?.length || 0;
+
+    const ownSentData = {
+      uid: orderSideUid,
+      name: orderSideName,
+      job: orderSideJob,
+      photo: orderSidePhoto,
+      connections_qty: ownConnectionsQty,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+    const orderSideReceivedData = {
+      uid: ownUid,
+      name: ownName,
+      job: ownJob,
+      photo: ownPhoto,
+      connections_qty: orderSideConnectionsQty,
+      timestamp: Math.floor(Date.now() / 1000),
+     };
+
+    ownRef.update({ [`connections.sent.${orderSideUid}`]: ownSentData });
+    orderSideRef.update({ [`connections.received.${ownUid}`]: orderSideReceivedData });
+
+    const snapshot = await ownRef.get();
+    const { connections: newConnections } = snapshot.data();
+
+    const connectionsData = handleProfileConnections(newConnections);
+
+    res.send({
+      success: true,
+      message: 'connect sent',
+      connections: connectionsData,
+    });
+  } catch (err) {
+    console.log(err);
+    const { message: code } = err;
+    let message = '';
+
+    switch (code) {
+      case 'user is connected':
+        message = 'user is connected';
+        break;
+      default:
+        message = 'sent connect failed'
+        break;
+    }
+
+    res.status(400).send({
+      success: false,
+      message,
+    });
+  }
+});
+
+router.post('/user/connect/remove_sent/:orderSideUid', async (req, res) => {
+  const { uid: ownUid } = req;
+  const { orderSideUid } = req.params;
+
+  const ownRef = usersRef.doc(ownUid);
+  const orderSideRef = usersRef.doc(orderSideUid);
+
+  try {
+    const [ownProfileSnapshot, userProfileSnapshot] =
+      await Promise.all([ownRef.get(), orderSideRef.get()]);
+
+    const { connections: ownConnections = {} } = ownProfileSnapshot.data();
+    const { connections: userConnections = {} } = userProfileSnapshot.data();
+
+    const isOrderSideInOwnSent = ownConnections.sent ? ownConnections.sent[orderSideUid] : false;
+    const isOwnInOrderSideReceived =
+      userConnections.received ? userConnections.received[ownUid] : false;
+
+    if (!isOrderSideInOwnSent) throw new Error('user is not in own connections sent');
+    if (!isOwnInOrderSideReceived) throw new Error('own is not in user connections received');
+
+    const { FieldValue } = firebase.firestore;
+    Promise.all([
+      ownRef.update({ [`connections.sent.${orderSideUid}`]: FieldValue.delete() }),
+      orderSideRef.update({ [`connections.received.${ownUid}`]: FieldValue.delete() })
+    ]);
+
+    const snapshot = await ownRef.get();
+    const { connections: newConnections } = snapshot.data();
+
+    const connectionsData = handleProfileConnections(newConnections);
+
+    res.send({
+      success: true,
+      message: 'connect sent',
+      connections: connectionsData,
+    });
+  } catch (err) {
+    console.log(err);
+    const { message: code } = err;
+    let message = '';
+
+    switch (code) {
+      case 'user is not in own connections sent':
+        message = 'user is not in own connections sent';
+        break;
+      case 'own is not in user connections received':
+        message = 'own is not in user connections received';
+        break;
+      default:
+        message = 'remove sent connect failed'
+        break;
+    }
+
+    res.status(400).send({
+      success: false,
+      message,
+    });
+  }
+});
+
+router.post('/user/connect/accept/:orderSideUid', async (req, res) => {
+  const { uid: ownUid } = req;
+  const { orderSideUid } = req.params;
+
+  
+  const ownRef = usersRef.doc(ownUid);
+  const orderSideRef = usersRef.doc(orderSideUid);
+  
+  try {
+    const { FieldValue } = firebase.firestore;
+    const [ownProfileSnapshot, userProfileSnapshot] =
+    await Promise.all([ownRef.get(), orderSideRef.get()]);
+    
+    const { connections: ownConnections = {} } = ownProfileSnapshot.data();
+    const { connections: orderSideConnections = {} } = userProfileSnapshot.data();
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const ownTempConnect = ownConnections.received[orderSideUid];
+    ownTempConnect.connected_time = timestamp;
+    const orderSideTempConnect = orderSideConnections.sent[ownUid];
+    orderSideTempConnect.connected_time = timestamp;
+
+
+    Promise.all([
+      ownRef.update({
+        [`connections.received.${orderSideUid}`]: FieldValue.delete(),
+        [`connections.connected.${orderSideUid}`]: ownTempConnect,
+      }),
+      orderSideRef.update({
+        [`connections.sent.${ownUid}`]: FieldValue.delete(),
+        [`connections.connected.${ownUid}`]: orderSideTempConnect,
+      }),
+    ]);
+
+    const snapshot = await ownRef.get();
+    const { connections: newConnections } = snapshot.data();
+
+    const connectionsData = handleProfileConnections(newConnections);
+
+    res.send({
+      success: true,
+      message: 'connect sent',
+      connections: connectionsData,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'apply connect failed',
     });
   }
 });

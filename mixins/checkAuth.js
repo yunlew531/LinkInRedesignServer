@@ -9,7 +9,7 @@ const checkAuth = async (req, res, next) => {
       next();
     } else throw new Error();
   } catch (err) {
-    console.log();
+    console.log(err);
     const { message: code } = err;
     let message = '';
 

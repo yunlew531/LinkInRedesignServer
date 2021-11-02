@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { fireDb } = require('../connections/firebase_connect');
+const handleProfileConnections = require('../mixins/handleProfileConnections');
 
 const usersRef = fireDb.collection('users');
 
@@ -23,7 +24,7 @@ router.get('/user/:uid', async (req, res) => {
     if(!userSnapshot.exists) throw new Error('user not exist');
 
     const user = userSnapshot.data();
-    const { name, photo, city, connections, brief_introduction, introduction,
+    const { uid, name, photo, city, connections = {}, brief_introduction, introduction,
       skills, education, profile_views, background_cover, description, about, job
     } = user;
 
@@ -41,11 +42,15 @@ router.get('/user/:uid', async (req, res) => {
       experience.push(doc.data());
     });
 
+    const connectionsData = handleProfileConnections(connections);
+
     const resUser = {
+      uid,
       name,
       photo,
       city,
-      connections_qty: connections?.length,
+      connections: connectionsData,
+      connections_qty: connectionsData?.connected?.length,
       brief_introduction,
       introduction,
       projects,
@@ -65,6 +70,7 @@ router.get('/user/:uid', async (req, res) => {
       message: '成功取得資料',
     });
   } catch(err) {
+    console.log(err);
     let message = '';
 
     switch(err.message) {
