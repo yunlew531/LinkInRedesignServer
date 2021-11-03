@@ -7,7 +7,10 @@ const upload = multer();
 const usersRef = fireDb.collection('users');
 const userPhotosStorageRef = fireStorage.ref('/user_photo');
 const articlesRef = fireDb.collection('articles');
-const handleProfileConnections = require('../mixins/handleProfileConnections');
+const formatProfileConnections = require('../mixins/formatProfileConnections');
+const formatArticleComments = require('../mixins/formatArticleComments');
+const formatArticleLikes = require('../mixins/formatArticleLikes');
+const formatArticleFavorites = require('../mixins/formatArticleFavorites');
 
 router.get('/profile', async (req, res) => {
   const { uid } = req;
@@ -40,7 +43,7 @@ router.get('/profile', async (req, res) => {
       experience.push(doc.data());
     });
 
-    const connectionsData = handleProfileConnections(connections);
+    const connectionsData = formatProfileConnections(connections);
 
     const resUser = {
       uid,
@@ -94,7 +97,7 @@ router.get('/photo', async (req, res) => {
     const snapshot = await usersRef.doc(uid).get();
     const { photo, name, connections = {} } = snapshot.data();
 
-    const connectionsData = handleProfileConnections(connections);
+    const connectionsData = formatProfileConnections(connections);
 
     res.send({
       success: true,
@@ -548,7 +551,7 @@ router.post('/education',
   checkSchema(educationCheck),
   async (req, res) => {
   const { uid } = req;
-  const education = req.body;
+  let education = req.body;
   const formatter = (error) => error.msg;
   const errors = validationResult(req).formatWith(formatter);
   const hasErrors = !errors.isEmpty();
@@ -564,12 +567,12 @@ router.post('/education',
   try {
     await usersRef.doc(uid).update({ education });
     const snapshot = await usersRef.doc(uid).get();
-    const { education: resEducation } = snapshot.data();
+    ({ education } = snapshot.data());
     
     res.send({
       success: true,
       message: 'update success',
-      education: resEducation,
+      education,
     });
   } catch (err) {
     res.status(400).send({
@@ -616,7 +619,7 @@ router.post(
 
     try {
       const snapshot = await usersRef.doc(uid).get();
-      let { articles = [], name, photo = '', job = '' } = snapshot.data();
+      let { name, photo = '', job = '' } = snapshot.data();
       
       const article = {
         id,
@@ -629,18 +632,18 @@ router.post(
       };
       
       await articleRef.set(article);
-      articles = articles ? [ ...articles, id ] : [ id ];
-      await usersRef.doc(uid).update({ articles });
+      await usersRef.doc(uid).update({ [`articles.${id}`]: id });
+
       const articlesSnapshot =
         await articlesRef.orderBy('create_time').startAt(1).limitToLast(10).get();
-      let resArticles = [];
-      articlesSnapshot.forEach((doc) => resArticles.push(doc.data()));
-      resArticles = resArticles.reverse();
+      let articles = [];
+      articlesSnapshot.forEach((doc) => articles.push(doc.data()));
+      articles = articles.reverse();
 
       res.send({
         success: true,
         message: 'create success',
-        articles: resArticles,
+        articles,
       });
     } catch (err) {
       console.log(err);
@@ -659,43 +662,24 @@ router.get('/articles/page/:page', async (req, res) => {
   try {
     const articlesSnapshot =
       await articlesRef.orderBy('create_time').get();
-      // await articlesRef.orderBy('create_time').limitToLast(10).get();
-      
-      const articlesPromise = () => new Promise((resolve, reject) => {
-      let resArticles = [];
-      articlesSnapshot.forEach(async (doc) => {
-        const data = doc.data();
-        try {
-          const commentsSnapshot =
-            await articlesRef.doc(data.id).collection('comments').orderBy('create_time').get();
-          const comments = [];
-          
-          if (!commentsSnapshot.empty) {
-            commentsSnapshot.forEach((commentDoc) => comments.push(commentDoc.data()));
-          }
-          
-          const article = { ...data, comments };
+ 
+    let articles = [];
+    articlesSnapshot.forEach(async (doc) => {
+      let article = doc.data();
+      let { comments, likes, favorites } = article;
+      likes = formatArticleLikes(likes);
+      comments = formatArticleComments(comments);
+      favorites = formatArticleFavorites(favorites);
+      article = { ...article, comments, likes, favorites };
 
-          if (article.favorites) {
-            const favorites = Object.keys(article.favorites).map((favorite) =>
-              ({ uid: favorite }));
-            article.favorites = favorites;
-          }
-
-          resArticles.push(article);
-          if (resArticles.length === articlesSnapshot.size) {
-            resolve(resArticles);
-          }
-        } catch (err) { reject(new Error()); }
-      });
+      articles.push(article);
     });
-    let resArticles = await articlesPromise();
-    resArticles = resArticles.reverse();
+    articles = articles.reverse();
 
     res.send({
       success: true,
       message: 'success',
-      articles: resArticles,
+      articles,
     });
   } catch (err) {
     console.log(err);
@@ -711,9 +695,15 @@ router.post('/article/like/:articleId', async (req, res) => {
   const { articleId } = req.params;
   const { name, photo = '', job = '' } = req.body;
 
+  const articleRef = articlesRef.doc(articleId);
+
   try {
-    const snapshot = await articlesRef.doc(articleId).get();
-    const { likes } = snapshot.data();
+    const snapshot = await articleRef.get();
+    let { likes = {} } = snapshot.data();
+
+    if (likes[uid]) {
+      throw new Error('user has in liked');
+    }
 
     const like = {
       uid,
@@ -722,28 +712,33 @@ router.post('/article/like/:articleId', async (req, res) => {
       job,
     };
 
-    if (!likes) {
-      await articlesRef.doc(articleId).update({
-        likes: [ like ],
-      });
-    } else {
-      likes.push(like);
-      await articlesRef.doc(articleId).update({ likes });
-    }
-
-    const articleSnapshot = await articlesRef.doc(articleId).get();
-    const article = articleSnapshot.data();
+    await articleRef.update({ [`likes.${uid}`]: like });
+    const articleSnapshot = await articleRef.get();
+    ({ likes } = articleSnapshot.data());
+    likes = formatArticleLikes(likes);
 
     res.send({
       success: true,
       message: 'thumbs up success',
-      article,
+      likes,
     });
   } catch (err) {
     console.log(' log => ', err);
+    let { message: code } = err;
+    let message = '';
+
+    switch (code) {
+      case 'user has in liked':
+        message = 'user has in liked';
+        break;
+      default:
+        message = 'thumbs up failed';
+        break;
+    }
+
     res.status(400).send({
       success: false,
-      message: 'thumbs up failed',
+      message,
     });
   }
 });
@@ -752,24 +747,29 @@ router.post('/article/dislike/:articleId', async (req, res) => {
   const { uid } = req;
   const { articleId } = req.params;
 
-  try {
-    const snapshot = await articlesRef.doc(articleId).get();
-    const { likes } = snapshot.data();
-    const userInLikesIndex = likes.findIndex((like) => like.uid === uid);
-    if (userInLikesIndex === -1) throw new Error('user no thumbs up')
+  const articleRef = articlesRef.doc(articleId);
+  const { FieldValue } = firebase.firestore;
 
-    likes.splice(userInLikesIndex, 1);
-    await articlesRef.doc(articleId).update({ likes });
-    
-    const articleSnapshot = await articlesRef.doc(articleId).get();
-    const article = articleSnapshot.data();
+  try {
+    const snapshot = await articleRef.get();
+    let { likes = {} } = snapshot.data();
+
+    if (!likes[uid]) {
+      throw new Error('user no thumbs up');
+    }
+
+    await articleRef.update({ [`likes.${uid}`]: FieldValue.delete() });
+    const articleSnapshot = await articleRef.get();
+    ({ likes } = articleSnapshot.data());
+    likes = formatArticleLikes(likes);
 
     res.send({
       success: true,
       message: 'cancel thumbs up success',
-      article,
+      likes,
     });
   } catch (err) {
+    console.log(err);
     const code = err.message;
     let message = '';
 
@@ -793,9 +793,8 @@ router.post('/article/comment/:articleId', async (req, res) => {
   const { articleId } = req.params;
   const { comment, name, photo = '' } = req.body;
 
-  const commentsRef = articlesRef.doc(articleId).collection('comments');
-  const commentRef = commentsRef.doc();
-  const { id } = commentRef;
+  const randomId = articlesRef.doc();
+  const { id } = randomId;
 
   const data = {
     id,
@@ -807,10 +806,10 @@ router.post('/article/comment/:articleId', async (req, res) => {
   };
   
   try {
-    await commentRef.set(data);
-    const snapshot = await commentsRef.orderBy('create_time').get();
-    const comments = [];
-    snapshot.forEach((comment) => comments.push(comment.data()));
+    await articlesRef.doc(articleId).update({ [`comments.${id}`]: data });
+    const snapshot = await articlesRef.doc(articleId).get();
+    let { comments } = snapshot.data(); 
+    comments = formatArticleComments(comments);
 
     res.send({
       success: true,
@@ -829,21 +828,21 @@ router.post('/article/comment/:articleId', async (req, res) => {
 router.delete('/article/:articleId/comment/:commentId', async (req, res) => {
   const { uid } = req;
   const { articleId, commentId } = req.params;
-  const commentRef = articlesRef.doc(articleId).collection('comments').doc(commentId);
+
+  const { FieldValue } = firebase.firestore;
+  const articleRef = articlesRef.doc(articleId);
 
   try {
-    const commentSnapshot = await commentRef.get();
-    const comment = commentSnapshot.data();
-    if (comment.uid !== uid) throw new Error('not comment owner');
+    const articleSnapshot = await articleRef.get();
+    let { comments } = articleSnapshot.data();
 
-    await commentRef.delete();
-    const snapshot =
-      await articlesRef.doc(articleId).collection('comments').orderBy('create_time').get();
+    if (comments[commentId].uid !== uid) throw new Error('not comment owner');
 
-    const comments = [];
-    snapshot.forEach((doc) => {
-      comments.push(doc.data());
-    });
+    await articleRef.update({ [`comments.${commentId}`]: FieldValue.delete() });
+    
+    const snapshot = await articleRef.get();
+    ({ comments } = snapshot.data());
+    comments = formatArticleComments(comments);
 
     res.send({
       success: true,
@@ -851,6 +850,7 @@ router.delete('/article/:articleId/comment/:commentId', async (req, res) => {
       comments,
     });
   } catch (err) {
+    console.log(err);
     const code = err.message;
     let message = '';
     let status = 400;
@@ -879,13 +879,13 @@ router.post('/article/favorites/:articleId', async (req, res) => {
   try {
     await articlesRef.doc(articleId).update({ [`favorites.${uid}`]: uid });
     const articleSnapshot = await articlesRef.doc(articleId).get();
-    const { favorites: resFavorites } = articleSnapshot.data();
-    const favoritesArr = Object.keys(resFavorites).map((favorite) => ({ uid: favorite }));
+    let { favorites } = articleSnapshot.data();
+    favorites = formatArticleFavorites(favorites);
 
     res.send({
       success: true,
       message: 'add favorite',
-      favorites: favoritesArr,
+      favorites,
     });
   } catch (err) {
     console.log(err);
@@ -904,13 +904,13 @@ router.delete('/article/favorites/:articleId', async (req, res) => {
   try {
     await articlesRef.doc(articleId).update({ [`favorites.${uid}`]: FieldValue.delete() });
     const articleSnapshot = await articlesRef.doc(articleId).get();
-    const { favorites } = articleSnapshot.data();
-    const favoritesArr = Object.keys(favorites).map((favorite) => ({ uid: favorite }));
+    let { favorites } = articleSnapshot.data();
+    favorites = formatArticleFavorites(favorites);
 
     res.send({
       success: true,
       message: 'remove favorite',
-      favorites: favoritesArr,
+      favorites,
     });
   } catch (err) {
     console.log(err);
@@ -966,28 +966,24 @@ router.get('/articles/own', async (req, res) => {
   try {
     const snapshot = await articlesRef.where('uid', '==', uid).orderBy('create_time').get();
     
-    const articlesPromise = () => new Promise((resolve, reject) => {
-      let articles = [];
-      snapshot.forEach(async (doc) => {
-        const article = doc.data();
-        const commentsSnapshot =
-          await articlesRef.doc(article.id).collection('comments').orderBy('create_time').get();
-        const comments = [];
-        commentsSnapshot.forEach((doc) => comments.push(doc.data()));
-  
-        const articleData = {
-          ...article,
-          comments,
-        };
-  
-        articles.push(articleData);
-        if (articles.length === snapshot.size) {
-          articles = articles.reverse();
-          resolve(articles);
-        }
-      });
+    let articles = [];
+    snapshot.forEach((doc) => {
+      const article = doc.data();
+      let { comments, likes, favorites} = article;
+      comments = formatArticleComments(comments);
+      likes = formatArticleLikes(likes);
+      favorites = formatArticleFavorites(favorites);
+    
+      const articleData = {
+        ...article,
+        comments,
+        likes,
+        favorites,
+      };
+
+      articles.push(articleData);
     });
-    const articles = await articlesPromise();
+    articles = articles.reverse();
 
     res.send({
       success: true,
@@ -1059,7 +1055,7 @@ router.post('/user/connect/:orderSideUid', async (req, res) => {
     const snapshot = await ownRef.get();
     const { connections: newConnections } = snapshot.data();
 
-    const connectionsData = handleProfileConnections(newConnections);
+    const connectionsData = formatProfileConnections(newConnections);
 
     res.send({
       success: true,
@@ -1117,7 +1113,7 @@ router.post('/user/connect/remove_sent/:orderSideUid', async (req, res) => {
     const snapshot = await ownRef.get();
     const { connections: newConnections } = snapshot.data();
 
-    const connectionsData = handleProfileConnections(newConnections);
+    const connectionsData = formatProfileConnections(newConnections);
 
     res.send({
       success: true,
@@ -1185,7 +1181,7 @@ router.post('/user/connect/accept/:orderSideUid', async (req, res) => {
     const snapshot = await ownRef.get();
     const { connections: newConnections } = snapshot.data();
 
-    const connectionsData = handleProfileConnections(newConnections);
+    const connectionsData = formatProfileConnections(newConnections);
 
     res.send({
       success: true,
@@ -1218,7 +1214,7 @@ router.delete('/user/connect/remove/:orderSideUid', async (req, res) => {
     const snapshot = await ownRef.get();
     const { connections: newConnections } = snapshot.data();
 
-    const connectionsData = handleProfileConnections(newConnections);
+    const connectionsData = formatProfileConnections(newConnections);
 
     res.send({
       success: true,
@@ -1251,7 +1247,7 @@ router.post('/user/connect/refuse/:orderSideUid', async (req, res) => {
     const snapshot = await ownRef.get();
     const { connections: newConnections } = snapshot.data();
 
-    const connectionsData = handleProfileConnections(newConnections);
+    const connectionsData = formatProfileConnections(newConnections);
 
     res.send({
       success: true,

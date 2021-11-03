@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { fireDb } = require('../connections/firebase_connect');
-const handleProfileConnections = require('../mixins/handleProfileConnections');
+const formatProfileConnections = require('../mixins/formatProfileConnections');
 
 const usersRef = fireDb.collection('users');
 
@@ -42,7 +42,7 @@ router.get('/user/:uid', async (req, res) => {
       experience.push(doc.data());
     });
 
-    const connectionsData = handleProfileConnections(connections);
+    const connectionsData = formatProfileConnections(connections);
 
     const resUser = {
       uid,
