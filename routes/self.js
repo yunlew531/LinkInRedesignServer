@@ -1201,4 +1201,70 @@ router.post('/user/connect/accept/:orderSideUid', async (req, res) => {
   }
 });
 
+router.delete('/user/connect/remove/:orderSideUid', async (req, res) => {
+  const { uid: ownUid } = req;
+  const { orderSideUid } = req.params;
+
+  const ownRef = usersRef.doc(ownUid);
+  const orderSideRef = usersRef.doc(orderSideUid);
+  const { FieldValue } = firebase.firestore;
+
+  try {
+    Promise.all([
+      ownRef.update({ [`connections.connected.${orderSideUid}`]: FieldValue.delete()}),
+      orderSideRef.update({ [`connections.connected.${ownUid}`]: FieldValue.delete()}),
+    ]);
+
+    const snapshot = await ownRef.get();
+    const { connections: newConnections } = snapshot.data();
+
+    const connectionsData = handleProfileConnections(newConnections);
+
+    res.send({
+      success: true,
+      message: 'connected remove',
+      connections: connectionsData,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'connected remove failed',
+    });
+  }
+});
+
+router.post('/user/connect/refuse/:orderSideUid', async (req, res) => {
+  const { uid: ownUid } = req;
+  const { orderSideUid } = req.params;
+
+  const ownRef = usersRef.doc(ownUid);
+  const orderSideRef = usersRef.doc(orderSideUid);
+  const { FieldValue } = firebase.firestore;
+
+  try {
+    Promise.all([
+      ownRef.update({ [`connections.received.${orderSideUid}`]: FieldValue.delete()}),
+      orderSideRef.update({ [`connections.sent.${ownUid}`]: FieldValue.delete() }),
+    ]);
+
+    const snapshot = await ownRef.get();
+    const { connections: newConnections } = snapshot.data();
+
+    const connectionsData = handleProfileConnections(newConnections);
+
+    res.send({
+      success: true,
+      message: 'refuse connect',
+      connections: connectionsData,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'refuse connect failed',
+    });
+  }
+});
+
 module.exports = router;
