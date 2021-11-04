@@ -11,47 +11,36 @@ const formatProfileConnections = require('../mixins/formatProfileConnections');
 const formatArticleComments = require('../mixins/formatArticleComments');
 const formatArticleLikes = require('../mixins/formatArticleLikes');
 const formatArticleFavorites = require('../mixins/formatArticleFavorites');
+const formatProfileExperience = require('../mixins/formatProfileExperience');
+const formatProfileProjects = require('../mixins/formatProfileProjects');
+const getRandomId = require('../mixins/getRandomId');
 
 router.get('/profile', async (req, res) => {
   const { uid } = req;
   const userRef = usersRef.doc(uid);
-  const projectsRef = userRef.collection('projects');
-  const experienceRef = userRef.collection('experience');
 
   try {
-    const [ userSnapshot, projectsSnapshot, experienceSnapshot ] =
-      await Promise.all([userRef.get(), projectsRef.get(), experienceRef.get()]);
+    const userSnapshot = await userRef.get();
 
     if(!userSnapshot.exists) throw new Error('user not exist');
 
     const user = userSnapshot.data();
-    const { uid, name, photo, city, connections = {}, brief_introduction, introduction,
+    const { uid, name, photo, city, brief_introduction, introduction,
       skills, education, profile_views, background_cover, description, about, job
     } = user;
+    let { experience, projects, connections } = user;
 
-    const projects = [];
-    projectsSnapshot.forEach((doc) => {
-      const project = doc.data();
-      const { create_time, update_time } = project;
-      if (create_time) project.create_time = create_time.seconds;
-      if (update_time) project.update_time = update_time.seconds;
-      projects.push(project);
-    });
-
-    const experience = [];
-    experienceSnapshot.forEach((doc) => {
-      experience.push(doc.data());
-    });
-
-    const connectionsData = formatProfileConnections(connections);
+    experience = formatProfileExperience(experience);
+    projects = formatProfileProjects(projects);
+    connections = formatProfileConnections(connections);
 
     const resUser = {
       uid,
       name,
       photo,
       city,
-      connections: connectionsData,
-      connections_qty: connectionsData?.connected?.length,
+      connections,
+      connections_qty: connections?.connected?.length,
       brief_introduction,
       introduction,
       projects,
@@ -229,27 +218,24 @@ router.put('/about/update', async (req, res) => {
 
 router.post('/project/create', async (req, res) => {
   const { uid } = req;
-  const { project } = req.body;
-  const projectsRef = usersRef.doc(uid).collection('projects');
-  const projectRef = projectsRef.doc();
-  const { id } = projectRef;
-  const create_time = firebase.firestore.FieldValue.serverTimestamp();
+  let { project } = req.body;
+  const id = getRandomId();
+  const create_time = Math.floor(Date.now() / 1000);
+
+  project = {
+    ...project,
+    id,
+    create_time,
+  };
+
+  const userRef = usersRef.doc(uid);
   
   try {
-    await projectRef.set({
-      ...project,
-      id,
-      create_time,
-    });
-    const snapshot = await projectsRef.get();
-    const projects = [];
-    snapshot.forEach((doc) => {
-      const project = doc.data();
-      const { create_time, update_time } = project;
-      if (create_time) project.create_time = create_time.seconds;
-      if (update_time) project.update_time = update_time.seconds;
-      projects.push(project)
-    });
+    await userRef.update({ [`projects.${id}`]: project });
+    const snapshot = await userRef.get();
+    
+    let { projects } = snapshot.data();
+    projects = formatProfileProjects(projects);
 
     res.send({
       success: true,
@@ -268,27 +254,28 @@ router.post('/project/create', async (req, res) => {
 router.put('/project/:id', async (req, res) => {
   const { uid } = req;
   const { id } = req.params;
-  const { project } = req.body;
-  const update_time = firebase.firestore.FieldValue.serverTimestamp();
-  const newProject = {
-    ...project,
-    update_time,
-  }
-  const projectsRef = usersRef.doc(uid).collection('projects');
-  const projectRef = projectsRef.doc(id);
+  let { project } = req.body;
+  const update_time = Math.floor(Date.now() / 1000);
+    
+  const userRef = usersRef.doc(uid);
 
   try {
-    await projectRef.update(newProject);
-    const snapshot = await projectsRef.get();
+    let snapshot = await userRef.get();
+    let { projects } = snapshot.data();
 
-    const projects = [];
-    snapshot.forEach((doc) => {
-      const project = doc.data();
-      const { create_time, update_time } = project;
-      if (create_time) project.create_time = create_time.seconds;
-      if (update_time) project.update_time = update_time.seconds;
-      projects.push(project);
-    });
+    const { create_time } = projects[id];
+
+    project = {
+      ...project,
+      update_time,
+      create_time,
+    };
+
+    await userRef.update({ [`projects.${id}`]: project });
+    snapshot = await userRef.get();
+
+    ({ projects } = snapshot.data());
+    projects = formatProfileProjects(projects);
 
     res.send({
       success: true,
@@ -307,19 +294,16 @@ router.put('/project/:id', async (req, res) => {
 router.delete('/project/:id', async (req, res) => {
   const { uid } = req;
   const { id } = req.params;
-  const projectsRef = usersRef.doc(uid).collection('projects');
+
+  const { FieldValue } = firebase.firestore;
+  const userRef = usersRef.doc(uid);
   
   try {
-    await projectsRef.doc(id).delete();
-    const snapshot = await projectsRef.get();
-    const projects = [];
-    snapshot.forEach((doc) => {
-      const project = doc.data();
-      const { create_time, update_time } = project;
-      if (create_time) project.create_time = create_time.seconds;
-      if (update_time) project.update_time = update_time.seconds;
-      projects.push(project);
-    });
+    await userRef.update({ [`projects.${id}`]: FieldValue.delete() });
+    const snapshot = await userRef.get();
+   
+    let { projects } = snapshot.data();
+    projects = formatProfileProjects(projects);
 
     res.send({
       success: true,
@@ -407,10 +391,9 @@ router.post(
 
     const { uid } = req;
     const { title, place, image_url, start_time, end_time, content } = req.body;
-    const experiencesRef = usersRef.doc(uid).collection('experience');
-    const experienceRef = experiencesRef.doc();
-    const { id } = experienceRef;
-    const data = {
+    const id = getRandomId();
+
+    let experience = {
       id,
       title,
       place,
@@ -420,13 +403,13 @@ router.post(
       content,
     };
 
+    const userRef = usersRef.doc(uid);
+
     try {
-      await experienceRef.set(data);
-      const snapshots = await experiencesRef.get();
-      const experience = [];
-      snapshots.forEach((doc) => {
-        experience.push(doc.data());
-      });
+      await userRef.update({ [`experience.${id}`]: experience });
+      const snapshot = await userRef.get();
+      ({ experience } = snapshot.data());
+      experience = formatProfileExperience(experience);
 
       res.send({
         success: true,
@@ -461,10 +444,8 @@ router.put(
     const { uid } = req;
     const { id } = req.params;
     const { title, place, image_url, start_time, end_time, content } = req.body;
-    const experiencesRef = usersRef.doc(uid).collection('experience');
-    const experienceRef = experiencesRef.doc(id);
 
-    const data = {
+    let experience = {
       id,
       title,
       place,
@@ -474,13 +455,13 @@ router.put(
       content,
     };
 
+    const userRef = usersRef.doc(uid);
+
     try {
-      await experienceRef.update(data);
-      const snapshots = await experiencesRef.get();
-      const experience = [];
-      snapshots.forEach((doc) => {
-        experience.push(doc.data());
-      });
+      await userRef.update({ [`experience.${id}`]: experience });
+      const snapshot = await userRef.get();
+      ({ experience } = snapshot.data());
+      experience = formatProfileExperience(experience);
 
       res.send({
         success: true,
@@ -488,6 +469,7 @@ router.put(
         experience,
       });
     } catch (err) {
+      console.log(err);
       res.status(400).send({
         success: false,
         message: 'update failed',
@@ -499,17 +481,15 @@ router.put(
 router.delete('/experience/:id', async (req, res) => {
   const { uid } = req;
   const { id } = req.params;
-  const experiencesRef = usersRef.doc(uid).collection('experience');
-  const experienceRef = experiencesRef.doc(id);
+  const { FieldValue } = firebase.firestore;
+  const userRef = usersRef.doc(uid);
 
   try {
-    await experienceRef.delete();
-    const snapshot = await experiencesRef.get();
+    await userRef.update({ [`experience.${id}`]: FieldValue.delete() });
+    const snapshot = await userRef.get();
 
-    const experience = [];
-    snapshot.forEach((doc) => {
-      experience.push(doc.data());
-    });
+    let { experience } = snapshot.data();
+    experience = formatProfileExperience(experience);
 
     res.send({
       success: true,
