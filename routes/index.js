@@ -1,7 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { fireDb } = require('../connections/firebase_connect');
+const formatArticleComments = require('../mixins/formatArticleComments');
+const formatArticleLikes = require('../mixins/formatArticleLikes');
+const formatArticleFavorites = require('../mixins/formatArticleFavorites');
 const formatProfileConnections = require('../mixins/formatProfileConnections');
+const articlesRef = fireDb.collection('articles');
 
 const usersRef = fireDb.collection('users');
 
@@ -9,6 +13,36 @@ router.get('/', function(req, res) {
   res.send({
     success: false,
   });
+});
+
+router.get('/articles/user/:uid', async (req, res) => {
+  const { uid } = req.params;
+
+  try {
+    const snapshot = await articlesRef.where('uid', '==', uid).orderBy('create_time').get();
+    const articles = [];
+    snapshot.forEach((doc) => {
+      let article = doc.data();
+      let { comments, likes, favorites } = article;
+      comments = formatArticleComments(comments);
+      likes = formatArticleLikes(likes);
+      favorites = formatArticleFavorites(favorites);
+      article = { ...article, comments, likes, favorites };
+      articles.push(article);
+    });
+
+    res.send({
+      success: true,
+      message: 'get success',
+      articles,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'get error',
+    })
+  }
 });
 
 router.get('/user/:uid', async (req, res) => {
@@ -67,7 +101,7 @@ router.get('/user/:uid', async (req, res) => {
     res.send({
       success: true,
       user: resUser,
-      message: '成功取得資料',
+      message: 'get success',
     });
   } catch(err) {
     console.log(err);
@@ -75,10 +109,10 @@ router.get('/user/:uid', async (req, res) => {
 
     switch(err.message) {
       case 'user not exist':
-        message = '帳戶不存在';
+        message = 'user not exist';
         break;
       default:
-        message = '無法取得資料';
+        message = 'get failed';
         break;
     }
 

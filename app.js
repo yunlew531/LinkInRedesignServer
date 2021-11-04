@@ -16,7 +16,7 @@ const corsOptions = {
 
 const indexRouter = require('./routes/index');
 const signinRouter = require('./routes/signin');
-const usersRouter = require('./routes/users');
+const userRouter = require('./routes/user');
 const selfRouter = require('./routes/self');
 
 const app = express();
@@ -29,7 +29,7 @@ app.use(cookieParser());
 
 app.use('/', indexRouter);
 app.use('/', signinRouter);
-app.use('/users', usersRouter);
+app.use('/user', userRouter);
 
 // auth
 app.use(checkAuth);

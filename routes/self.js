@@ -635,41 +635,6 @@ router.post(
   }
 );
 
-router.get('/articles/page/:page', async (req, res) => {
-  const page = req.params.page || 1;
-  const startIdx = (page - 1) * 10 + 1;
-
-  try {
-    const articlesSnapshot =
-      await articlesRef.orderBy('create_time').get();
- 
-    let articles = [];
-    articlesSnapshot.forEach(async (doc) => {
-      let article = doc.data();
-      let { comments, likes, favorites } = article;
-      likes = formatArticleLikes(likes);
-      comments = formatArticleComments(comments);
-      favorites = formatArticleFavorites(favorites);
-      article = { ...article, comments, likes, favorites };
-
-      articles.push(article);
-    });
-    articles = articles.reverse();
-
-    res.send({
-      success: true,
-      message: 'success',
-      articles,
-    });
-  } catch (err) {
-    console.log(err);
-    res.status(400).send({
-      success: false,
-      message: 'failed'
-    });
-  }
-});
-
 router.post('/article/like/:articleId', async (req, res) => {
   const { uid } = req;
   const { articleId } = req.params;
