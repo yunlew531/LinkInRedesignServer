@@ -20,7 +20,7 @@ router.get('/articles/user/:uid', async (req, res) => {
 
   try {
     const snapshot = await articlesRef.where('uid', '==', uid).orderBy('create_time').get();
-    const articles = [];
+    let articles = [];
     snapshot.forEach((doc) => {
       let article = doc.data();
       let { comments, likes, favorites } = article;
@@ -30,6 +30,7 @@ router.get('/articles/user/:uid', async (req, res) => {
       article = { ...article, comments, likes, favorites };
       articles.push(article);
     });
+    articles = articles.reverse();
 
     res.send({
       success: true,

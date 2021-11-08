@@ -905,7 +905,43 @@ router.delete('/article/:articleId', async (req, res) => {
   }
 });
 
-router.get('/articles/own', async (req, res) => {
+router.get('/articles/all', async (req, res) => {
+  const page = req.params.page || 1;
+
+  try {
+    const articlesSnapshot =
+      await articlesRef.orderBy('create_time').get();
+ 
+    let articles = [];
+    articlesSnapshot.forEach(async (doc) => {
+      let article = doc.data();
+      let { comments, likes, favorites } = article;
+      likes = formatArticleLikes(likes);
+      comments = formatArticleComments(comments);
+      favorites = formatArticleFavorites(favorites);
+      article = { ...article, comments, likes, favorites };
+      articles.push(article);
+    });
+    articles = articles.reverse();
+    
+    res.send({
+      success: true,
+      message: 'success',
+      articles,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).send({
+      success: false,
+      message: 'failed'
+    });
+  }
+});
+
+router.get('/articles', async (req, res) => {
+  const { filter } = req.query;
+  if (filter !== 'own') return;
+
   const { uid } = req;
 
   try {
@@ -941,6 +977,54 @@ router.get('/articles/own', async (req, res) => {
       success: false,
       message: 'get articles failed',
     });
+  }
+});
+
+router.get('/articles', async(req, res) => {
+  const { filter } = req.query;
+  if (filter !== 'favorites') return;
+  
+  const { uid } = req;
+  const fieldPath = new firebase.firestore.FieldPath('favorites', uid);
+  
+  try {
+    const snapshot = await articlesRef.where(fieldPath, '==', uid).get();
+
+    if (snapshot.empty) {
+      res.send({
+        success: true,
+        message: 'get articles',
+        articles: [],
+      });
+      return;
+    }
+
+    let articles = [];
+    snapshot.forEach((doc) => {
+      const article = doc.data();
+      let { comments, likes, favorites} = article;
+      comments = formatArticleComments(comments);
+      likes = formatArticleLikes(likes);
+      favorites = formatArticleFavorites(favorites);
+    
+      const articleData = {
+        ...article,
+        comments,
+        likes,
+        favorites,
+      };
+
+      articles.push(articleData);
+    });
+    articles = articles.reverse();
+
+    res.send({
+      success: true,
+      message: 'get articles',
+      articles,
+    });
+  } catch (err) {
+    
   }
 });
 
