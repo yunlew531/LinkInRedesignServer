@@ -938,9 +938,12 @@ router.get('/articles/all', async (req, res) => {
   }
 });
 
-router.get('/articles', async (req, res) => {
+router.get('/articles', async (req, res, next) => {
   const { filter } = req.query;
-  if (filter !== 'own') return;
+  if (filter !== 'own') {
+    next();
+    return;
+  };
 
   const { uid } = req;
 
@@ -980,9 +983,12 @@ router.get('/articles', async (req, res) => {
   }
 });
 
-router.get('/articles', async(req, res) => {
+router.get('/articles', async(req, res, next) => {
   const { filter } = req.query;
-  if (filter !== 'favorites') return;
+  if (filter !== 'favorites') {
+    next();
+    return;
+  }
   
   const { uid } = req;
   const fieldPath = new firebase.firestore.FieldPath('favorites', uid);
