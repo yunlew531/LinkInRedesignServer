@@ -5,6 +5,8 @@ const formatArticleComments = require('../mixins/formatArticleComments');
 const formatArticleLikes = require('../mixins/formatArticleLikes');
 const formatArticleFavorites = require('../mixins/formatArticleFavorites');
 const formatProfileConnections = require('../mixins/formatProfileConnections');
+const formatProfileExperience = require('../mixins/formatProfileExperience');
+const formatProfileProjects = require('../mixins/formatProfileProjects');
 const articlesRef = fireDb.collection('articles');
 
 const usersRef = fireDb.collection('users');
@@ -49,43 +51,29 @@ router.get('/articles/user/:uid', async (req, res) => {
 router.get('/user/:uid', async (req, res) => {
   const { uid } = req.params;
   const userRef = usersRef.doc(uid);
-  const projectsRef = userRef.collection('projects');
-  const experienceRef = userRef.collection('experience');
 
   try {
-    const [ userSnapshot, projectsSnapshot, experienceSnapshot ] =
-      await Promise.all([userRef.get(), projectsRef.get(), experienceRef.get()]);
+    const userSnapshot = await userRef.get();
 
     if(!userSnapshot.exists) throw new Error('user not exist');
 
     const user = userSnapshot.data();
-    const { uid, name, photo, city, connections = {}, brief_introduction, introduction,
+    const { uid, name, photo, city, brief_introduction, introduction,
       skills, education, profile_views, background_cover, description, about, job
     } = user;
+    let { connections, projects, experience } = user;
 
-    const projects = [];
-    projectsSnapshot.forEach((doc) => {
-      const project = doc.data();
-      const { create_time, update_time } = project;
-      if (create_time) project.create_time = create_time.seconds;
-      if (update_time) project.update_time = update_time.seconds;
-      projects.push(project);
-    });
-
-    const experience = [];
-    experienceSnapshot.forEach((doc) => {
-      experience.push(doc.data());
-    });
-
-    const connectionsData = formatProfileConnections(connections);
+    connections = formatProfileConnections(connections);
+    experience = formatProfileExperience(experience);
+    projects = formatProfileProjects(projects);
 
     const resUser = {
       uid,
       name,
       photo,
       city,
-      connections: connectionsData,
-      connections_qty: connectionsData?.connected?.length,
+      connections,
+      connections_qty: connections?.connected?.length,
       brief_introduction,
       introduction,
       projects,
