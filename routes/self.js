@@ -13,6 +13,7 @@ const formatArticleLikes = require('../mixins/formatArticleLikes');
 const formatArticleFavorites = require('../mixins/formatArticleFavorites');
 const formatProfileExperience = require('../mixins/formatProfileExperience');
 const formatProfileProjects = require('../mixins/formatProfileProjects');
+const formatProfileViews = require('../mixins/formatProfileViews');
 const getRandomId = require('../mixins/getRandomId');
 
 router.get('/profile', async (req, res) => {
@@ -26,13 +27,14 @@ router.get('/profile', async (req, res) => {
 
     const user = userSnapshot.data();
     const { uid, name, photo, city, brief_introduction, introduction,
-      skills, education, profile_views, background_cover, description, about, job
+      skills, education, background_cover, description, about, job
     } = user;
-    let { experience, projects, connections } = user;
+    let { experience, projects, connections, views } = user;
 
     experience = formatProfileExperience(experience);
     projects = formatProfileProjects(projects);
     connections = formatProfileConnections(connections);
+    views = formatProfileViews(views);
 
     const resUser = {
       uid,
@@ -47,7 +49,7 @@ router.get('/profile', async (req, res) => {
       skills,
       experience,
       education,
-      profile_views,
+      views,
       background_cover,
       description,
       about,
@@ -1058,7 +1060,7 @@ router.post('/user/connect/:orderSideUid', async (req, res) => {
       photo: orderSidePhoto = ''
     } = userProfileSnapshot.data();
   
-    const isConnected = ownConnections.sent ? ownConnections.sent[orderSideUid] : false;
+    const isConnected = ownConnections.sent && ownConnections.sent[orderSideUid];
 
     if (ownConnections.sent && isConnected) {
       throw new Error('user is connected');
@@ -1084,18 +1086,20 @@ router.post('/user/connect/:orderSideUid', async (req, res) => {
       timestamp: Math.floor(Date.now() / 1000),
      };
 
-    ownRef.update({ [`connections.sent.${orderSideUid}`]: ownSentData });
-    orderSideRef.update({ [`connections.received.${ownUid}`]: orderSideReceivedData });
+    await Promise.all([
+      ownRef.update({ [`connections.sent.${orderSideUid}`]: ownSentData }),
+      orderSideRef.update({ [`connections.received.${ownUid}`]: orderSideReceivedData }),
+    ]);
 
     const snapshot = await ownRef.get();
-    const { connections: newConnections } = snapshot.data();
+    let { connections: newConnections } = snapshot.data();
 
-    const connectionsData = formatProfileConnections(newConnections);
+    newConnections = formatProfileConnections(newConnections);
 
     res.send({
       success: true,
       message: 'connect sent',
-      connections: connectionsData,
+      connections: newConnections,
     });
   } catch (err) {
     console.log(err);
@@ -1132,28 +1136,28 @@ router.post('/user/connect/remove_sent/:orderSideUid', async (req, res) => {
     const { connections: ownConnections = {} } = ownProfileSnapshot.data();
     const { connections: userConnections = {} } = userProfileSnapshot.data();
 
-    const isOrderSideInOwnSent = ownConnections.sent ? ownConnections.sent[orderSideUid] : false;
+    const isOrderSideInOwnSent = ownConnections.sent && ownConnections.sent[orderSideUid];
     const isOwnInOrderSideReceived =
-      userConnections.received ? userConnections.received[ownUid] : false;
+      userConnections.received && userConnections.received[ownUid];
 
     if (!isOrderSideInOwnSent) throw new Error('user is not in own connections sent');
     if (!isOwnInOrderSideReceived) throw new Error('own is not in user connections received');
 
     const { FieldValue } = firebase.firestore;
-    Promise.all([
+    await Promise.all([
       ownRef.update({ [`connections.sent.${orderSideUid}`]: FieldValue.delete() }),
       orderSideRef.update({ [`connections.received.${ownUid}`]: FieldValue.delete() })
     ]);
 
     const snapshot = await ownRef.get();
-    const { connections: newConnections } = snapshot.data();
+    let { connections: newConnections } = snapshot.data();
 
-    const connectionsData = formatProfileConnections(newConnections);
+    newConnections = formatProfileConnections(newConnections);
 
     res.send({
       success: true,
       message: 'connect sent',
-      connections: connectionsData,
+      connections: newConnections,
     });
   } catch (err) {
     console.log(err);
@@ -1202,7 +1206,7 @@ router.post('/user/connect/accept/:orderSideUid', async (req, res) => {
     orderSideTempConnect.connected_time = timestamp;
 
 
-    Promise.all([
+    await Promise.all([
       ownRef.update({
         [`connections.received.${orderSideUid}`]: FieldValue.delete(),
         [`connections.connected.${orderSideUid}`]: ownTempConnect,
@@ -1241,7 +1245,7 @@ router.delete('/user/connect/remove/:orderSideUid', async (req, res) => {
   const { FieldValue } = firebase.firestore;
 
   try {
-    Promise.all([
+    await Promise.all([
       ownRef.update({ [`connections.connected.${orderSideUid}`]: FieldValue.delete()}),
       orderSideRef.update({ [`connections.connected.${ownUid}`]: FieldValue.delete()}),
     ]);
@@ -1274,7 +1278,7 @@ router.post('/user/connect/refuse/:orderSideUid', async (req, res) => {
   const { FieldValue } = firebase.firestore;
 
   try {
-    Promise.all([
+    await Promise.all([
       ownRef.update({ [`connections.received.${orderSideUid}`]: FieldValue.delete()}),
       orderSideRef.update({ [`connections.sent.${ownUid}`]: FieldValue.delete() }),
     ]);

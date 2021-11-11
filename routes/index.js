@@ -1,27 +1,33 @@
 const express = require('express');
 const router = express.Router();
-const { fireDb } = require('../connections/firebase_connect');
+const jwt = require('jsonwebtoken');
+const { fireDb, firebase } = require('../connections/firebase_connect');
 const formatArticleComments = require('../mixins/formatArticleComments');
 const formatArticleLikes = require('../mixins/formatArticleLikes');
 const formatArticleFavorites = require('../mixins/formatArticleFavorites');
 const formatProfileConnections = require('../mixins/formatProfileConnections');
 const formatProfileExperience = require('../mixins/formatProfileExperience');
 const formatProfileProjects = require('../mixins/formatProfileProjects');
+const formatProfileViews = require('../mixins/formatProfileViews');
 const articlesRef = fireDb.collection('articles');
 
 const usersRef = fireDb.collection('users');
 
-router.get('/', function(req, res) {
-  res.send({
-    success: false,
-  });
-});
-
 router.get('/articles/user/:uid', async (req, res) => {
   const { uid } = req.params;
-
+ 
   try {
     const snapshot = await articlesRef.where('uid', '==', uid).orderBy('create_time').get();
+
+    if (snapshot.empty) {
+      res.send({
+        success: true,
+        message: 'get success',
+        articles: [],
+      });
+      return;
+    }
+
     let articles = [];
     snapshot.forEach((doc) => {
       let article = doc.data();
@@ -49,23 +55,52 @@ router.get('/articles/user/:uid', async (req, res) => {
 });
 
 router.get('/user/:uid', async (req, res) => {
+  const { authorization: token } = req.headers;
   const { uid } = req.params;
-  const userRef = usersRef.doc(uid);
+  const { view } = req.query;
+  const orderSideUserRef = usersRef.doc(uid);
+  const { FieldValue } = firebase.firestore;
+
+  let isLogin = false;
+  let ownUid;
+  try {
+    const { uid } = jwt.verify(token, process.env.JWT_PRIVATE_KEY);
+    isLogin = true;
+    ownUid = uid;
+  } catch (err) {}
 
   try {
-    const userSnapshot = await userRef.get();
+    let userSnapshot = await usersRef.doc(ownUid).get();
 
     if(!userSnapshot.exists) throw new Error('user not exist');
 
-    const user = userSnapshot.data();
-    const { uid, name, photo, city, brief_introduction, introduction,
-      skills, education, profile_views, background_cover, description, about, job
+    let user = userSnapshot.data();
+    let { uid, name, photo = '', job = '' } = user;
+
+    if (view === 'true') {
+      if (isLogin) {
+        const data = { name, uid, job, photo };
+        await orderSideUserRef.update({
+          [`views.profile_views.${uid}`]: data,
+          'views.profile_views_total': FieldValue.increment(1),
+        });
+      } else {
+        await orderSideUserRef.update({ 'views.profile_views_total': FieldValue.increment(1) });
+      }
+    }
+
+    userSnapshot = await orderSideUserRef.get();
+    user = userSnapshot.data();
+    const { city, brief_introduction, introduction,
+      skills, education, background_cover, description, about
     } = user;
-    let { connections, projects, experience } = user;
+    let { connections, projects, experience, views } = user;
+    ({ name, uid, job = '', photo = '' } = user);
 
     connections = formatProfileConnections(connections);
     experience = formatProfileExperience(experience);
     projects = formatProfileProjects(projects);
+    views = formatProfileViews(views);
 
     const resUser = {
       uid,
@@ -80,7 +115,7 @@ router.get('/user/:uid', async (req, res) => {
       skills,
       experience,
       education,
-      profile_views,
+      views,
       background_cover,
       description,
       about,
@@ -110,6 +145,6 @@ router.get('/user/:uid', async (req, res) => {
       message,
     });
   }
-})
+});
 
 module.exports = router;
