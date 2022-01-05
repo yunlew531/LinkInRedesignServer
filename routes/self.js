@@ -27,7 +27,7 @@ router.get('/profile', async (req, res) => {
 
     const user = userSnapshot.data();
     const { uid, name, photo, city, brief_introduction, introduction,
-      skills, education, background_cover, description, about, job
+      skills, education, background_cover, description, about, job, notice
     } = user;
     let { experience, projects, connections, views } = user;
 
@@ -54,6 +54,7 @@ router.get('/profile', async (req, res) => {
       description,
       about,
       job,
+      notice
     };
 
     res.send({
@@ -1068,6 +1069,7 @@ router.post('/user/connect/:orderSideUid', async (req, res) => {
 
     const ownConnectionsQty = ownConnections.connected?.length || 0;
     const orderSideConnectionsQty = orderSideConnections.connected?.length || 0;
+    const timestamp = Math.floor(Date.now() / 1000);
 
     const ownSentData = {
       uid: orderSideUid,
@@ -1075,7 +1077,7 @@ router.post('/user/connect/:orderSideUid', async (req, res) => {
       job: orderSideJob,
       photo: orderSidePhoto,
       connections_qty: ownConnectionsQty,
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp
     };
     const orderSideReceivedData = {
       uid: ownUid,
@@ -1083,12 +1085,23 @@ router.post('/user/connect/:orderSideUid', async (req, res) => {
       job: ownJob,
       photo: ownPhoto,
       connections_qty: orderSideConnectionsQty,
-      timestamp: Math.floor(Date.now() / 1000),
-     };
+      timestamp
+    };
+    const orderSideNotice = {
+      type: 'connect',
+      uid: ownUid,
+      name: ownName,
+      status: true,
+      timestamp
+    }
+    const noticeRandomId = getRandomId()
 
     await Promise.all([
       ownRef.update({ [`connections.sent.${orderSideUid}`]: ownSentData }),
-      orderSideRef.update({ [`connections.received.${ownUid}`]: orderSideReceivedData }),
+      orderSideRef.update({
+        [`connections.received.${ownUid}`]: orderSideReceivedData,
+        [`notice.${noticeRandomId}`]: orderSideNotice
+      }),
     ]);
 
     const snapshot = await ownRef.get();
@@ -1300,6 +1313,17 @@ router.post('/user/connect/refuse/:orderSideUid', async (req, res) => {
       message: 'refuse connect failed',
     });
   }
+});
+
+router.get('/user/notice/', async (req, res) => {
+  const { uid } = req
+  const userRef = await usersRef.doc(uid)
+  const { notice } = userRef
+  res.send({
+    success: true,
+    message: 'get notice data success',
+    notice
+  })
 });
 
 module.exports = router;
