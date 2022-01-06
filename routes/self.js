@@ -647,7 +647,7 @@ router.post('/article/like/:articleId', async (req, res) => {
 
   try {
     const snapshot = await articleRef.get();
-    let { likes = {} } = snapshot.data();
+    let { likes = {}, uid: articleOwnerUid } = snapshot.data();
 
     if (likes[uid]) {
       throw new Error('user has in liked');
@@ -660,7 +660,20 @@ router.post('/article/like/:articleId', async (req, res) => {
       job,
     };
 
+    const timestamp = Math.floor(Date.now() / 1000);
+    const noticeRandomId = getRandomId();
+    const orderSideNotice = {
+      type: 'articleLike',
+      uid,
+      name,
+      status: true,
+      timestamp,
+      id: noticeRandomId,
+      article_id: articleId
+    }
+
     await articleRef.update({ [`likes.${uid}`]: like });
+    await usersRef.doc(articleOwnerUid).update({ [`notices.${noticeRandomId}`]: orderSideNotice })
     const articleSnapshot = await articleRef.get();
     ({ likes } = articleSnapshot.data());
     likes = formatArticleLikes(likes);
@@ -1087,20 +1100,21 @@ router.post('/user/connect/:orderSideUid', async (req, res) => {
       connections_qty: orderSideConnectionsQty,
       timestamp
     };
+    const noticeRandomId = getRandomId()
     const orderSideNotice = {
       type: 'connect',
       uid: ownUid,
       name: ownName,
       status: true,
-      timestamp
+      timestamp,
+      id: noticeRandomId
     }
-    const noticeRandomId = getRandomId()
 
     await Promise.all([
       ownRef.update({ [`connections.sent.${orderSideUid}`]: ownSentData }),
       orderSideRef.update({
         [`connections.received.${ownUid}`]: orderSideReceivedData,
-        [`notice.${noticeRandomId}`]: orderSideNotice
+        [`notices.${noticeRandomId}`]: orderSideNotice
       }),
     ]);
 
@@ -1317,12 +1331,14 @@ router.post('/user/connect/refuse/:orderSideUid', async (req, res) => {
 
 router.get('/user/notice/', async (req, res) => {
   const { uid } = req
-  const userRef = await usersRef.doc(uid)
-  const { notice } = userRef
+  const userRef = usersRef.doc(uid)
+  const snapshot = await userRef.get()
+  const { notices } = snapshot.data()
+
   res.send({
     success: true,
     message: 'get notice data success',
-    notice
+    notices
   })
 });
 
