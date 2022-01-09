@@ -753,12 +753,12 @@ router.post('/article/comment/:articleId', async (req, res) => {
   const { uid } = req;
   const { articleId } = req.params;
   const { comment, name, photo = '' } = req.body;
+  const timestamp = Math.floor(Date.now() / 1000);
 
-  const randomId = articlesRef.doc();
-  const { id } = randomId;
+  const commentId = getRandomId();
 
   const data = {
-    id,
+    id: commentId,
     uid,
     name,
     photo,
@@ -767,10 +767,21 @@ router.post('/article/comment/:articleId', async (req, res) => {
   };
   
   try {
-    await articlesRef.doc(articleId).update({ [`comments.${id}`]: data });
+    await articlesRef.doc(articleId).update({ [`comments.${commentId}`]: data });
     const snapshot = await articlesRef.doc(articleId).get();
-    let { comments } = snapshot.data(); 
+    let { comments } = snapshot.data();
+    const { uid: articleOwnerUid } = snapshot.data();
     comments = formatArticleComments(comments);
+    const noticeRandomId = getRandomId();
+    const orderSideNotice = {
+      type: 'articleComment',
+      uid,
+      name,
+      status: true,
+      timestamp,
+      id: noticeRandomId
+    };
+    await usersRef.doc(articleOwnerUid).update({ [`notices.${noticeRandomId}`]: orderSideNotice });
 
     res.send({
       success: true,
