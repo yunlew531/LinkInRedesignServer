@@ -27,7 +27,7 @@ router.get('/profile', async (req, res) => {
 
     const user = userSnapshot.data();
     const { uid, name, photo, city, brief_introduction, introduction,
-      skills, education, background_cover, description, about, job, notice
+      skills, education, background_cover, description, about, job, notices
     } = user;
     let { experience, projects, connections, views } = user;
 
@@ -54,7 +54,7 @@ router.get('/profile', async (req, res) => {
       description,
       about,
       job,
-      notice
+      notices
     };
 
     res.send({
